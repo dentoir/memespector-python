@@ -45,6 +45,7 @@ def main():
             cacheCopyFolder = outputsFolder + settings['Folders']['CacheCopyFolder'] + slash
 
             makeNetwork = f.yn(settings['OutputConfiguration']['MakeNetwork'])
+            makeWebNetwork = f.yn(settings['OutputConfiguration']['MakeWebEntitiesNetwork'])
 
             imagesRemote = f.yn(settings['SourceImagesLocation']['ImagesRemote'])
             absolutePath = f.yn(settings['SourceImagesLocation']['AbsolutePath'])
@@ -164,7 +165,7 @@ def main():
             print(inputHeader)
             sys.exit('\n**ERROR**\nImage column could not be found in input file. Please check the configuration file.\n')
 
-        if makeNetwork:
+        if makeNetwork or makeWebNetwork:
             if linkColumn in inputHeader:
                 linkColumnIdx = inputHeader.index(linkColumn)
             else:
@@ -215,6 +216,12 @@ def main():
             graphfilename = "img-label-net_" + inputFileName.split(".")[0] + ".gexf"
             graphfilepath = outputsFolder + graphfilename
             foundlabels = []
+
+        if makeWebNetwork:
+            webgraph = nx.Graph()
+            webgraphfilename = "img-webentities-net_" + inputFileName.split(".")[0] + ".gexf"
+            webgraphfilepath = outputsFolder + webgraphfilename
+            foundwebentities = []
 
         # ------------------------------------------
         # Process images
@@ -270,6 +277,10 @@ def main():
             if makeNetwork:
                 nodelink = inputRow[linkColumnIdx]
                 graph.add_node(imageHash, type='image', label='_image', file=copyFilename, link=nodelink)
+
+            if makeWebNetwork:
+                nodelink = inputRow[linkColumnIdx]
+                webgraph.add_node(imageHash, type='image', label='_image', file=copyFilename, link=nodelink)
 
             # Process image
 
@@ -385,11 +396,18 @@ def main():
                 if 'webEntities' in response['webDetection']:
                     gv_web_entities = []
                     for entity in response['webDetection']['webEntities']:
-                        if 'description' in entity:
+                        if 'entityId' in entity and 'description' in entity and 'score' in entity:
+                            entity_id = entity['entityId']
                             description = entity['description']
+                            gv_web_entities.append(description + "(" + str(entity['score']) + ")")
+                            if makeWebNetwork:
+                                if not entity_id in foundwebentities:
+                                    foundwebentities.append(entity_id)
+                                    # This likely adds redundant attributes but may make it more compatible with the label network graph
+                                    webgraph.add_node(entity_id,type='gv_web_entity', label=description, mid=entity_id, description=description)
+                                webgraph.add_edge(imageHash, entity_id, score=entity['score'], topicality=entity['score'])
                         else:
                             description = "NONE"
-                        gv_web_entities.append(description + "(" + str(entity['score']) + ")")
                     gv_web_entities = ",".join(gv_web_entities)
                 else:
                     gv_web_entities = "NONE"
@@ -447,10 +465,15 @@ def main():
             outputCSV.writerow(outputRow)
         if makeNetwork:
             nx.write_gexf(graph, graphfilepath)
+        if makeWebNetwork:
+            nx.write_gexf(webgraph, webgraphfilepath)
     except KeyboardInterrupt:
         if makeNetwork:
             if graph:
                 nx.write_gexf(graph,graphfilepath)
+        if makeWebNetwork:
+            if webgraph:
+                nx.write_gexf(webgraph,webgraphfilepath)
         print("\n\n**Script interrupted by user**\n\n")
     except Exception:
         traceback.print_exc(file=sys.stdout)
